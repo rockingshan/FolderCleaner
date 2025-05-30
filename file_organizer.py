@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
+from datetime import datetime
 
 # Constants
 DEFAULT_TAG_FOLDER = Path.home() / "Documents" / "Tagged Files"
@@ -36,13 +37,17 @@ def scan_directory():
 
     refresh_file_list()
 
-def refresh_file_list():
+def refresh_file_list(sort_key=None, reverse=False):
     for item in tree.get_children():
         tree.delete(item)
 
+    if sort_key:
+        file_list.sort(key=sort_key, reverse=reverse)
+
     for file in file_list:
         tag = tag_map.get(file.name, "")
-        tree.insert("", "end", values=(file.name, tag))
+        mod_time = datetime.fromtimestamp(file.stat().st_mtime).strftime('%Y-%m-%d %H:%M')
+        tree.insert("", "end", values=(file.name, tag, file.suffix, mod_time))
 
 def assign_tag():
     selected = tree.selection()
@@ -92,10 +97,22 @@ def run_cleanup():
     messagebox.showinfo("Cleanup", f"{moved} files moved successfully.")
     scan_directory()
 
+def on_treeview_heading_click(col):
+    reverse = tree_sort_state.get(col, False)
+    if col == "Type":
+        refresh_file_list(sort_key=lambda f: f.suffix, reverse=reverse)
+    elif col == "Modified":
+        refresh_file_list(sort_key=lambda f: f.stat().st_mtime, reverse=reverse)
+    elif col == "Filename":
+        refresh_file_list(sort_key=lambda f: f.name.lower(), reverse=reverse)
+    elif col == "Tag":
+        refresh_file_list(sort_key=lambda f: tag_map.get(f.name, "").lower(), reverse=reverse)
+    tree_sort_state[col] = not reverse
+
 # --- GUI Setup ---
 root = tk.Tk()
 root.title("File Organizer")
-root.geometry("720x520")
+root.geometry("800x540")
 
 top_frame = ttk.Frame(root)
 top_frame.pack(padx=10, pady=10, fill="x")
@@ -120,11 +137,17 @@ tree_frame.pack(padx=10, pady=10, fill="both", expand=True)
 tree_scroll = ttk.Scrollbar(tree_frame)
 tree_scroll.pack(side="right", fill="y")
 
-tree = ttk.Treeview(tree_frame, columns=("Filename", "Tag"), show="headings", selectmode="extended", yscrollcommand=tree_scroll.set)
-tree.heading("Filename", text="Filename")
-tree.heading("Tag", text="Tag")
-tree.column("Filename", width=400)
-tree.column("Tag", width=200)
+tree = ttk.Treeview(tree_frame, columns=("Filename", "Tag", "Type", "Modified"), show="headings", selectmode="extended", yscrollcommand=tree_scroll.set)
+tree.heading("Filename", text="Filename", command=lambda: on_treeview_heading_click("Filename"))
+tree.heading("Tag", text="Tag", command=lambda: on_treeview_heading_click("Tag"))
+tree.heading("Type", text="Type", command=lambda: on_treeview_heading_click("Type"))
+tree.heading("Modified", text="Modified", command=lambda: on_treeview_heading_click("Modified"))
+
+tree.column("Filename", width=300)
+tree.column("Tag", width=120)
+tree.column("Type", width=80)
+tree.column("Modified", width=150)
+
 tree.pack(fill="both", expand=True)
 tree_scroll.config(command=tree.yview)
 
@@ -133,6 +156,9 @@ bottom_frame.pack(pady=10)
 
 cleanup_btn = ttk.Button(bottom_frame, text="Run Cleanup", command=run_cleanup)
 cleanup_btn.pack()
+
+# Sort state
+tree_sort_state = {}
 
 # Load saved tags to combobox
 tag_combo["values"] = list(tag_to_folder.keys())
